@@ -1,0 +1,340 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <time.h>
+
+#define MAX_LINE_SIZE 4096
+#define MAX_FIELD_SIZE 512
+#define MAX_ARRAY_ELEMENTS 50
+
+typedef struct {
+    int id;
+    char* name;
+    char* releaseDate;
+    int estimatedOwners;
+    float price;
+    char** supportedLanguages;
+    int supportedLanguagesCount;
+    int metacriticScore;
+    float userScore;
+    int achievements;
+    char** publishers;
+    int publishersCount;
+    char** developers;
+    int developersCount;
+    char** categories;
+    int categoriesCount;
+    char** genres;
+    int genresCount;
+    char** tags;
+    int tagsCount;
+} Game;
+
+int movimentacoes = 0;
+int comparacoes = 0;
+
+void carregarJogo(Game* game, char* line);
+void imprimirJogo(Game* game);
+void liberarMemoriaJogo(Game* game);
+char* obterProximoCampo(char* line, int* pos);
+char** dividirString(const char* str, char delimiter, int* count);
+char* removerEspacos(char* str);
+char* converterData(char* dateStr);
+void imprimirArrayStrings(char** arr, int count);
+void ordenarPorSelecao(Game* games, int n);
+void trocarJogos(Game* a, Game* b);
+void gerarArquivoLog(const char* matricula, int comp, int mov, double tempo);
+
+int main() {
+    char lineBuffer[MAX_LINE_SIZE];
+    const char* filePath = "/tmp/games.csv";
+    
+    FILE* file = fopen(filePath, "r");
+    if (file == NULL) {
+        perror("Erro ao abrir o arquivo");
+        return 1;
+    }
+    
+    int gameCount = 0;
+    fgets(lineBuffer, MAX_LINE_SIZE, file); 
+    while (fgets(lineBuffer, MAX_LINE_SIZE, file) != NULL) {
+        gameCount++;
+    }
+    fclose(file);
+
+    Game* allGames = (Game*) malloc(sizeof(Game) * gameCount);
+    if (allGames == NULL) {
+        printf("Erro de alocação de memória\n");
+        return 1;
+    }
+    
+    file = fopen(filePath, "r");
+    if (file == NULL) {
+        perror("Erro ao reabrir o arquivo");
+        free(allGames);
+        return 1;
+    }
+
+    fgets(lineBuffer, MAX_LINE_SIZE, file); 
+    int i = 0;
+    while (fgets(lineBuffer, MAX_LINE_SIZE, file) != NULL) {
+        carregarJogo(&allGames[i], lineBuffer);
+        i++;
+    }
+    fclose(file);
+
+    char inputId[MAX_FIELD_SIZE];
+    Game* gamesParaOrdenar = (Game*) malloc(sizeof(Game) * gameCount);
+    int countParaOrdenar = 0;
+    
+    while (fgets(inputId, MAX_FIELD_SIZE, stdin) != NULL) {
+        inputId[strcspn(inputId, "\n")] = 0; 
+        if (strcmp(inputId, "FIM") == 0) {
+            break;
+        }
+
+        int targetId = atoi(inputId);
+        for (i = 0; i < gameCount; i++) {
+            if (allGames[i].id == targetId) {
+                gamesParaOrdenar[countParaOrdenar] = allGames[i];
+                countParaOrdenar++;
+                break;
+            }
+        }
+    }
+
+    clock_t inicio = clock();
+    ordenarPorSelecao(gamesParaOrdenar, countParaOrdenar);
+    clock_t fim = clock();
+    double tempo = ((double)(fim - inicio)) / CLOCKS_PER_SEC;
+
+    for (i = 0; i < countParaOrdenar; i++) {
+        imprimirJogo(&gamesParaOrdenar[i]);
+    }
+
+    gerarArquivoLog("885732", comparacoes, movimentacoes, tempo);
+
+    free(gamesParaOrdenar);
+    
+    for (i = 0; i < gameCount; i++) {
+        liberarMemoriaJogo(&allGames[i]);
+    }
+    free(allGames);
+
+    return 0;
+}
+
+void ordenarPorSelecao(Game* games, int n) {
+    int i, j, min_idx;
+    
+    for (i = 0; i < n - 1; i++) {
+        min_idx = i;
+        for (j = i + 1; j < n; j++) {
+            comparacoes++;
+            if (strcmp(games[j].name, games[min_idx].name) < 0) {
+                min_idx = j;
+            }
+        }
+        
+        if (min_idx != i) {
+            trocarJogos(&games[min_idx], &games[i]);
+            movimentacoes += 3;
+        }
+    }
+}
+
+void trocarJogos(Game* a, Game* b) {
+    Game temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+void gerarArquivoLog(const char* matricula, int comp, int mov, double tempo) {
+    FILE* logFile = fopen("suamatricula_selecao.txt", "w");
+    if (logFile != NULL) {
+        fprintf(logFile, "%s\t%d\t%d\t%f\n", matricula, comp, mov, tempo);
+        fclose(logFile);
+    }
+}
+
+void carregarJogo(Game* game, char* line) {
+    int pos = 0;
+
+    game->id = atoi(obterProximoCampo(line, &pos));
+    game->name = obterProximoCampo(line, &pos);
+    game->releaseDate = converterData(obterProximoCampo(line, &pos));
+    game->estimatedOwners = atoi(obterProximoCampo(line, &pos));
+    
+    char* priceStr = obterProximoCampo(line, &pos);
+    game->price = (strcmp(priceStr, "Free to Play") == 0 || strlen(priceStr) == 0) ? 0.0f : atof(priceStr);
+    free(priceStr);
+
+    char* langStr = obterProximoCampo(line, &pos);
+    langStr[strcspn(langStr, "]")] = 0; 
+    memmove(langStr, langStr + 1, strlen(langStr)); 
+    for(int i = 0; langStr[i]; i++) if(langStr[i] == '\'') langStr[i] = ' ';
+    game->supportedLanguages = dividirString(langStr, ',', &game->supportedLanguagesCount);
+    free(langStr);
+    
+    game->metacriticScore = atoi(obterProximoCampo(line, &pos));
+    game->userScore = atof(obterProximoCampo(line, &pos));
+    game->achievements = atoi(obterProximoCampo(line, &pos));
+
+    game->publishers = dividirString(obterProximoCampo(line, &pos), ',', &game->publishersCount);
+    game->developers = dividirString(obterProximoCampo(line, &pos), ',', &game->developersCount);
+    game->categories = dividirString(obterProximoCampo(line, &pos), ',', &game->categoriesCount);
+    game->genres = dividirString(obterProximoCampo(line, &pos), ',', &game->genresCount);
+    game->tags = dividirString(obterProximoCampo(line, &pos), ',', &game->tagsCount);
+}
+
+void imprimirJogo(Game* game) {
+    char formattedDate[12];
+    strcpy(formattedDate, game->releaseDate);
+    if(formattedDate[1] == '/') {
+        memmove(formattedDate + 1, formattedDate, strlen(formattedDate) + 1);
+        formattedDate[0] = '0';
+    }
+
+    printf("=> %d ## %s ## %s ## %d ## %.2f ## ", 
+        game->id, game->name, formattedDate, game->estimatedOwners, game->price);
+    imprimirArrayStrings(game->supportedLanguages, game->supportedLanguagesCount);
+    printf(" ## %d ## %.1f ## %d ## ", 
+        game->metacriticScore == 0 ? -1 : game->metacriticScore, 
+        game->userScore == 0 ? -1.0f : game->userScore, 
+        game->achievements);
+    imprimirArrayStrings(game->publishers, game->publishersCount);
+    printf(" ## ");
+    imprimirArrayStrings(game->developers, game->developersCount);
+    printf(" ## ");
+    imprimirArrayStrings(game->categories, game->categoriesCount);
+    printf(" ## ");
+    imprimirArrayStrings(game->genres, game->genresCount);
+    printf(" ## ");
+    imprimirArrayStrings(game->tags, game->tagsCount);
+    printf(" ##\n");
+}
+
+void liberarMemoriaJogo(Game* game) {
+    free(game->name);
+    free(game->releaseDate);
+    for (int i = 0; i < game->supportedLanguagesCount; i++) free(game->supportedLanguages[i]);
+    free(game->supportedLanguages);
+    for (int i = 0; i < game->publishersCount; i++) free(game->publishers[i]);
+    free(game->publishers);
+    for (int i = 0; i < game->developersCount; i++) free(game->developers[i]);
+    free(game->developers);
+    for (int i = 0; i < game->categoriesCount; i++) free(game->categories[i]);
+    free(game->categories);
+    for (int i = 0; i < game->genresCount; i++) free(game->genres[i]);
+    free(game->genres);
+    for (int i = 0; i < game->tagsCount; i++) free(game->tags[i]);
+    free(game->tags);
+}
+
+char* obterProximoCampo(char* line, int* pos) {
+    char* field = (char*) malloc(sizeof(char) * MAX_FIELD_SIZE);
+    int i = 0;
+    bool inQuotes = false;
+    
+    if (line[*pos] == '"') {
+        inQuotes = true;
+        (*pos)++;
+    }
+    
+    while (line[*pos] != '\0') {
+        if (inQuotes) {
+            if (line[*pos] == '"') {
+                (*pos)++;
+                break;
+            }
+        } else {
+            if (line[*pos] == ',') {
+                break;
+            }
+        }
+        field[i++] = line[(*pos)++];
+    }
+    
+    if (line[*pos] == ',') {
+        (*pos)++;
+    }
+    
+    field[i] = '\0';
+    return field;
+}
+
+char** dividirString(const char* str, char delimiter, int* count) {
+    int initialCount = 0;
+    for(int i = 0; str[i]; i++) if(str[i] == delimiter) initialCount++;
+    *count = initialCount + 1;
+
+    char** result = (char**) malloc(sizeof(char*) * (*count));
+    char buffer[MAX_FIELD_SIZE];
+    int str_idx = 0;
+    int result_idx = 0;
+
+    for (int i = 0; i <= strlen(str); i++) {
+        if (str[i] == delimiter || str[i] == '\0') {
+            buffer[str_idx] = '\0';
+            result[result_idx] = (char*) malloc(sizeof(char) * (strlen(buffer) + 1));
+            strcpy(result[result_idx], removerEspacos(buffer));
+            result_idx++;
+            str_idx = 0;
+        } else {
+            buffer[str_idx++] = str[i];
+        }
+    }
+    return result;
+}
+
+char* removerEspacos(char* str) {
+    char *end;
+    while(isspace((unsigned char)*str)) str++;
+    if(*str == 0) return str;
+    end = str + strlen(str) - 1;
+    while(end > str && isspace((unsigned char)*end)) end--;
+    end[1] = '\0';
+    return str;
+}
+
+char* converterData(char* dateStr) {
+    char* formattedDate = (char*) malloc(sizeof(char) * 12);
+    char monthStr[4] = {0};
+    char day[3] = "01";
+    char year[5] = "0000";
+
+    sscanf(dateStr, "%s", monthStr);
+
+    char* monthNum = "01";
+    if (strcmp(monthStr, "Feb") == 0) monthNum = "02";
+    else if (strcmp(monthStr, "Mar") == 0) monthNum = "03";
+    else if (strcmp(monthStr, "Apr") == 0) monthNum = "04";
+    else if (strcmp(monthStr, "May") == 0) monthNum = "05";
+    else if (strcmp(monthStr, "Jun") == 0) monthNum = "06";
+    else if (strcmp(monthStr, "Jul") == 0) monthNum = "07";
+    else if (strcmp(monthStr, "Aug") == 0) monthNum = "08";
+    else if (strcmp(monthStr, "Sep") == 0) monthNum = "09";
+    else if (strcmp(monthStr, "Oct") == 0) monthNum = "10";
+    else if (strcmp(monthStr, "Nov") == 0) monthNum = "11";
+    else if (strcmp(monthStr, "Dec") == 0) monthNum = "12";
+
+    char* ptr = dateStr;
+    while(*ptr && !isdigit(*ptr)) ptr++;
+    if(isdigit(*ptr)) sscanf(ptr, "%[^,], %s", day, year);
+    
+    sprintf(formattedDate, "%s/%s/%s", day, monthNum, year);
+    free(dateStr);
+    return formattedDate;
+}
+
+void imprimirArrayStrings(char** arr, int count) {
+    printf("[");
+    for (int i = 0; i < count; i++) {
+        printf("%s", arr[i]);
+        if (i < count - 1) {
+            printf(", ");
+        }
+    }
+    printf("]");
+}
